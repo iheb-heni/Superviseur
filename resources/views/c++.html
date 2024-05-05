@@ -1,0 +1,106 @@
+    #include <WiFi.h>
+#include <MySQL_Connection.h>
+#include <MySQL_Cursor.h>
+
+const int pin2 = 2; // rouge
+const int pin3 = 35; // vert
+const int pin4 = 4; // bleu
+
+unsigned long startTime2 = 0; // Temps de début pour la broche rouge
+unsigned long elapsedTime2 = 0; // Temps écoulé pour la broche rouge
+unsigned long startTime3 = 0; // Temps de début pour la broche vert
+unsigned long elapsedTime3 = 0; // Temps écoulé pour la broche vert
+unsigned long startTime4 = 0; // Temps de début pour la broche bleue
+unsigned long elapsedTime4 = 0; // Temps écoulé pour la broche bleue
+
+// Paramètres du réseau WiFi
+const char* ssid = "TOPNET_9568";
+const char* password = "2a7qc224m7";
+
+// Paramètres de connexion à la base de données MySQL
+IPAddress server(192, 168, 1, 100); // Adresse IP du serveur MySQL
+int port = 3306; // Port MySQL par défaut
+char* db_user = "root";
+char* db_password = "";
+char* database = "achref";
+
+
+WiFiClient client; // Initialisez une instance de la classe WiFiClient pour la connexion MySQL
+MySQL_Connection conn((Client *)&client); // Initialisez une instance de la classe MySQL_Connection
+
+// Fonction pour mettre à jour les temps dans la base de données
+void updateDatabase(const char* column, unsigned long elapsedTime) {
+  char query[128];
+  sprintf(query, "UPDATE machines SET %s = %lu WHERE id = 1", column, elapsedTime);
+  Serial.println(query);
+  MySQL_Cursor *cur_mem = new MySQL_Cursor(&conn);
+  cur_mem->execute(query);
+  delete cur_mem;
+}
+
+void setup() {
+  pinMode(pin2, INPUT);
+  pinMode(pin3, INPUT);
+  pinMode(pin4, INPUT);
+  
+  // Initialisation de la connexion WiFi
+  Serial.begin(9600);
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.println("Connexion au réseau WiFi en cours...");
+  }
+
+  Serial.println("Connexion au réseau WiFi établie.");
+
+  // Connexion à la base de données MySQL
+  if (conn.connect(server, port, db_user, db_password, database)) {
+    Serial.println("Connexion à la base de données MySQL réussie !");
+  } else {
+    Serial.println("Erreur lors de la connexion à la base de données MySQL...");
+  }
+}
+
+void loop() {
+  static bool lastState2 = false; // Dernier état de la broche rouge
+  static bool lastState3 = false; // Dernier état de la broche vert
+  static bool lastState4 = false; // Dernier état de la broche bleue
+
+  bool currentState2 = digitalRead(pin2); // État actuel de la broche rouge
+  bool currentState3 = digitalRead(pin3); // État actuel de la broche vert
+  bool currentState4 = digitalRead(pin4); // État actuel de la broche bleue
+
+  // Mettre à jour les temps dans la base de données
+  if (currentState2 && !lastState2 && !currentState3) {
+    startTime2 = millis();
+  } else if (!currentState2 && currentState3) {
+    if (startTime2 > 0) {
+      elapsedTime2 += millis() - startTime2;
+      startTime2 = 0;
+      updateDatabase("to", elapsedTime2); // Mettre à jour le temps dans la colonne "to"
+    }
+  } else if (currentState2 && currentState4) {
+    startTime4 = millis();
+  } else if (!currentState2 && lastState4 && !currentState4) {
+    startTime3 = millis();
+    if (startTime2 > 0) {
+      elapsedTime4 += millis() - startTime2;
+      startTime4 = 0;
+      updateDatabase("tp", elapsedTime4); // Mettre à jour le temps dans la colonne "tp"
+    }
+  } else if (lastState4 && lastState2 && currentState3) {
+    if (startTime3 > 0) {
+      elapsedTime3 += millis() - startTime2;
+      startTime3 = 0;
+      updateDatabase("ti", elapsedTime3); // Mettre à jour le temps dans la colonne "ti"
+    }
+  }
+
+  lastState2 = currentState2;
+  lastState3 = currentState3;
+  lastState4 = currentState4;
+  
+  delay(1000); // Délai entre chaque itération de la boucle
+}
+
